@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login | RIS Lite</title>
+</head>
+<body>
+  <h2>Inicio de Sesión - Sistema RIS Lite</h2>
+
+  <div style="max-width:420px;">
+    <div style="margin:10px 0;">
+      <input id="email" placeholder="Usuario (email)" style="width:100%; padding:10px;" />
+    </div>
+
+    <div style="margin:10px 0;">
+      <input id="password" type="password" placeholder="Contraseña" style="width:100%; padding:10px;" />
+    </div>
+    <div style="margin:10px 0;">
+  <select id="rol" style="width:100%; padding:10px;">
+    <option value="TM">Tecnólogo Médico</option>
+    <option value="Medico">Médico</option>
+    <option value="Admin">Administrador</option>
+  </select>
+</div>
+
+
+    <button id="btnLogin" style="padding:10px 16px; width:100%;">Ingresar</button>
+
+    <div style="margin-top:10px;">
+      <button id="btnRegister" style="padding:10px 16px; width:100%;">Crear cuenta</button>
+    </div>
+
+    <p id="msg" style="color:#b00; margin-top:10px;"></p>
+  </div>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+    import { getUserRoleByEmail, setLocalSession, signOut } from "./assets/auth.js";
+
+    const $email = document.getElementById("email");
+    const $pass = document.getElementById("password");
+ 
+    
+    const $btnLogin = document.getElementById("btnLogin");
+    const $btnRegister = document.getElementById("btnRegister");
+    const $msg = document.getElementById("msg");
+
+    // Ajustá el rol por defecto para nuevos registros
+    const DEFAULT_ROL = "TM"; // "TM" / "Medico" / "Admin"
+
+    function showMsg(text, ok = false) {
+      $msg.style.color = ok ? "green" : "#b00";
+      $msg.textContent = text || "";
+    }
+
+    $btnLogin.addEventListener("click", async () => {
+      showMsg("");
+
+      const email = ($email.value || "").trim();
+      const password = ($pass.value || "").trim();
+
+      if (!email || !password) {
+        showMsg("Completa email y contraseña.");
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+      if (error) {
+        showMsg("Login falló: " + error.message);
+        return;
+      }
+
+      const rol = await getUserRoleByEmail(email);
+
+      if (!rol) {
+        // Si se logueó en Auth pero no está en tabla usuarios, lo sacamos para que no quede “medio adentro”
+        await signOut();
+        showMsg("Tu usuario no tiene rol activo en la tabla usuarios.");
+        return;
+      }
+
+      setLocalSession({ email, rol });
+
+      // Redirección por rol
+      if (rol === "TM") window.location.href = "ordenes.html";
+      else if (rol === "Medico") window.location.href = "orden_form.html";
+      else window.location.href = "index.html";
+    });
+
+    $btnRegister.addEventListener("click", async () => {
+      showMsg("");
+
+      const email = ($email.value || "").trim();
+      const password = ($pass.value || "").trim();
+
+      if (!email || !password) {
+        showMsg("Para crear cuenta, completa email y contraseña.");
+        return;
+      }
+
+      // 1) Crear usuario en Supabase Auth
+      const { data, error } = await supabase.auth.signUp({ email, password });
+
+      if (error) {
+        showMsg("Registro falló: " + error.message);
+        return;
+      }
+
+      const user = data?.user;
+
+      // Si está activado "Confirm email", puede venir sin session, pero user suele venir igual.
+      if (!user?.id) {
+        showMsg("Cuenta creada. Revisa tu correo para confirmar y luego inicia sesión.", true);
+        return;
+      }
+
+      // 2) Guardar rol en tabla usuarios
+      const { error: dbError } = await supabase.from("usuarios").insert({
+        id: user.id,
+        email: user.email,
+        rol: DEFAULT_ROL,
+        activo: true
+      });
+
+      if (dbError) {
+        showMsg("Cuenta creada en Auth, pero falló guardar en tabla usuarios: " + dbError.message);
+        return;
+      }
+
+      // Si confirm email está prendido, igual avisamos
+      if (!data?.session) {
+        showMsg("Cuenta creada. Revisa tu correo para confirmar y luego inicia sesión.", true);
+      } else {
+        showMsg("Cuenta creada. Ya puedes ingresar.", true);
+      }
+    });
+  </script> <script type="module" src="./assets/register.js"></script>
+
+</body>
+</html>

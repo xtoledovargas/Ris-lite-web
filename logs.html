@@ -1,0 +1,26 @@
+<h1>Logs</h1>
+
+<input id="q" placeholder="Buscar por actor, entidad o acción..." />
+<button id="btnBuscar">Buscar</button>
+<button id="btnLimpiar">Limpiar</button>
+<button id="btnVolver">Volver</button>
+
+<table border="1.5" cellpadding="6" style="margin-top:10px; width:100%">
+  <thead>
+    <tr>
+      <th>Fecha</th>
+      <th>Actor</th>
+      <th>Acción</th>
+      <th>Entidad</th>
+      <th>ID</th>
+      <th>Detalle</th>
+    </tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+
+
+<script type="module" src="./logs.js"> 
+  import { requireAuthOrRedirect } from "./assets/auth.js";
+
+</script>

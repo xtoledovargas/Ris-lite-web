@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tipo Examen | RIS Lite</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; max-width: 720px; }
+    label { display:block; margin-top: 12px; font-weight: bold; }
+    input, textarea { width:100%; padding:10px; margin-top: 6px; }
+    textarea { min-height: 90px; resize: vertical; }
+    .actions { margin-top: 18px; display:flex; gap:10px; flex-wrap:wrap; }
+    .muted { color:#666; font-size: 0.9rem; }
+    .card { border:1px solid #ddd; padding:16px; border-radius: 8px; }
+  </style>
+</head>
+
+<body>
+  <h1 id="titulo">Nuevo Tipo Examen</h1>
+  <a href="tipo_examen.html">Volver</a>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="muted">Código basado en FONASA + descripción corta (p.ej. patología/observación)</div>
+
+    <form id="formTipo">
+      <input type="hidden" id="tipoId" />
+
+      <label>Nombre</label>
+      <input id="nombre" placeholder="Ej: RX Tórax" required />
+
+      <label>Código FONASA</label>
+      <input id="codigo" placeholder="Ej: 0404017" required />
+
+      <label>Descripción (patología / indicación)</label>
+      <textarea id="descripcion" placeholder="Ej: asma / sospecha neumonía / control post-op..."></textarea>
+
+      <label style="display:flex; align-items:center; gap:8px; margin-top:14px;">
+        <input id="activo" type="checkbox" checked style="width:auto; margin:0;" />
+        Activo
+      </label>
+
+      <div class="actions">
+        <button type="submit">Guardar</button>
+        <button type="button" id="btnCancelar">Cancelar</button>
+      </div>
+    </form>
+  </div>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+    import { logEvent } from "./assets/logger.js";
+
+    const titulo = document.getElementById("titulo");
+    const form = document.getElementById("formTipo");
+
+    const tipoId = document.getElementById("tipoId");
+    const nombreEl = document.getElementById("nombre");
+    const codigoEl = document.getElementById("codigo");
+    const descripcionEl = document.getElementById("descripcion");
+    const activoEl = document.getElementById("activo");
+
+    document.getElementById("btnCancelar").addEventListener("click", () => {
+      window.location.href = "tipo_examen.html";
+    });
+
+    function getParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+
+    const id = getParam("id");
+    if (id) {
+      tipoId.value = id;
+      titulo.textContent = "Editar Tipo Examen";
+      cargarTipo(id);
+    }
+
+    async function cargarTipo(id) {
+      const { data, error } = await supabase
+        .from("tipo_examen")
+        .select("id,nombre,codigo,descripcion,activo")
+        .eq("id", id)
+        .single();
+
+      if (error) {
+        alert("Error cargando tipo examen: " + error.message);
+        return;
+      }
+
+      nombreEl.value = data.nombre ?? "";
+      codigoEl.value = data.codigo ?? "";
+      descripcionEl.value = data.descripcion ?? "";
+      activoEl.checked = !!data.activo;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const payload = {
+        nombre: nombreEl.value.trim(),
+        codigo: codigoEl.value.trim(),
+        descripcion: (descripcionEl.value || "").trim() || null,
+        activo: !!activoEl.checked
+      };
+
+      if (!payload.nombre || !payload.codigo) {
+        alert("Completa Nombre y Código FONASA.");
+        return;
+      }
+
+      // CREATE
+      if (!tipoId.value) {
+        const { data: nuevoTipo, error } = await supabase
+          .from("tipo_examen")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (error) {
+          alert("Error al crear: " + error.message);
+          return;
+        }
+
+        // ✅ TU LOG CREATE (ajustado a variables reales)
+        await logEvent({
+          accion: "CREATE",
+          entidad: "tipo_examen",
+          entidad_id: nuevoTipo?.id ?? null,
+          detalle: `Tipo examen creado: ${payload.codigo} - ${payload.nombre}`
+        });
+
+        alert("Tipo de examen creado.");
+        window.location.href = "tipo_examen.html";
+        return;
+      }
+
+      // UPDATE
+      const { error } = await supabase
+        .from("tipo_examen")
+        .update(payload)
+        .eq("id", Number(tipoId.value));
+
+      if (error) {
+        alert("Error al actualizar: " + error.message);
+        return;
+      }
+
+      await logEvent({
+        accion: "UPDATE",
+        entidad: "tipo_examen",
+        entidad_id: Number(tipoId.value),
+        detalle: `Tipo examen actualizado: ${payload.codigo} - ${payload.nombre}`
+      });
+
+      alert("Tipo de examen actualizado.");
+      window.location.href = "tipo_examen.html";
+    });
+  </script>
+</body>
+</html>

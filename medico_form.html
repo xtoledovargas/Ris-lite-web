@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Formulario Médico</title>
+</head>
+
+<body>
+  <h1 id="title">Nuevo Médico</h1>
+
+  <p><a href="medico.html">Volver</a></p>
+
+  <form id="form" style="max-width:720px;">
+    <div style="margin:10px 0;">
+      <label><b>RUT</b></label><br />
+      <input id="rut" required placeholder="12345678-9" style="width:100%; padding:8px;" />
+    </div>
+
+    <div style="margin:10px 0;">
+      <label><b>Nombre</b></label><br />
+      <input id="nombre" required style="width:100%; padding:8px;" />
+    </div>
+
+    <div style="margin:10px 0;">
+      <label><b>Especialidad</b></label><br />
+      <input id="especialidad" style="width:100%; padding:8px;" />
+    </div>
+
+    <div style="margin:10px 0;">
+      <label>
+        <input type="checkbox" id="activo" checked />
+        Activo
+      </label>
+    </div>
+
+    <button type="submit">Guardar</button>
+    <button type="button" id="btnCancelar">Cancelar</button>
+  </form>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+
+    const params = new URLSearchParams(location.search);
+    const id = params.get("id");
+
+    const title = document.getElementById("title");
+    const form = document.getElementById("form");
+
+    const rut = document.getElementById("rut");
+    const nombre = document.getElementById("nombre");
+    const especialidad = document.getElementById("especialidad");
+    const activo = document.getElementById("activo");
+
+    document.getElementById("btnCancelar").addEventListener("click", () => {
+      window.location.href = "medico.html";
+    });
+
+    if (id) {
+      title.textContent = "Editar Médico";
+      cargar();
+    }
+
+    async function cargar() {
+      const { data, error } = await supabase
+        .from("medico_solicitante")
+        .select("id,rut,nombre,especialidad,activo")
+        .eq("id", id)
+        .single();
+
+      if (error) {
+        alert("Error cargando: " + error.message);
+        return;
+      }
+
+      rut.value = data.rut ?? "";
+      nombre.value = data.nombre ?? "";
+      especialidad.value = data.especialidad ?? "";
+      activo.checked = !!data.activo;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const payload = {
+        rut: rut.value.trim(),
+        nombre: nombre.value.trim(),
+        especialidad: especialidad.value.trim(),
+        activo: activo.checked
+      };
+
+      if (!payload.rut || !payload.nombre) {
+        alert("RUT y Nombre son obligatorios.");
+        return;
+      }
+
+      let resp;
+      if (id) {
+        resp = await supabase
+          .from("medico_solicitante")
+          .update(payload)
+          .eq("id", id);
+      } else {
+        resp = await supabase
+          .from("medico_solicitante")
+          .insert(payload);
+      }
+
+      if (resp.error) {
+        alert("Error al guardar: " + resp.error.message);
+        return;
+      }
+
+      alert(id ? "Médico actualizado." : "Médico creado.");
+      window.location.href = "medico.html";
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Formulario Orden</title>
+</head>
+<body>
+  <h1 id="title">Nueva Orden</h1>
+  <p><a href="ordenes.html">Volver</a></p>
+
+  <form id="form" style="max-width:780px;">
+    <div style="margin:10px 0;">
+      <label><b>Paciente</b></label><br />
+      <select id="paciente" required style="width:100%; padding:8px;"></select>
+    </div>
+
+    <div style="margin:10px 0;">
+      <label><b>Médico solicitante</b></label><br />
+      <select id="medico" required style="width:100%; padding:8px;"></select>
+    </div>
+
+    <div style="margin:10px 0;">
+      <label><b>Tipo de examen (FONASA)</b></label><br />
+      <select id="examen" required style="width:100%; padding:8px;"></select>
+    </div>
+
+    <div style="margin:10px 0;">
+      <label><b>Estado</b></label><br />
+      <select id="estado" required style="width:100%; padding:8px;"></select>
+    </div>
+
+    <div style="margin:10px 0;">
+      <label><b>Prioridad</b></label><br />
+      <select id="prioridad" required style="width:100%; padding:8px;">
+        <option value="Normal">Normal</option>
+        <option value="Urgente">Urgente</option>
+      </select>
+    </div>
+
+    <button type="submit">Guardar</button>
+    <button type="button" id="btnCancelar">Cancelar</button>
+  </form>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+    import { logEvent } from "./assets/logger.js";
+
+    const params = new URLSearchParams(location.search);
+    const id = params.get("id");
+
+    const title = document.getElementById("title");
+    const form = document.getElementById("form");
+
+    const paciente = document.getElementById("paciente");
+    const medico = document.getElementById("medico");
+    const examen = document.getElementById("examen");
+    const estado = document.getElementById("estado");
+    const prioridad = document.getElementById("prioridad");
+
+    let estadoAnteriorId = null;
+
+    document.getElementById("btnCancelar").addEventListener("click", () => {
+      window.location.href = "ordenes.html";
+    });
+
+    function esc(str) {
+      return String(str ?? "").replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[s]));
+    }
+
+    function getEstadoNombreDesdeSelect(valorId) {
+      const opt = estado.querySelector(`option[value="${String(valorId)}"]`);
+      return opt ? opt.textContent : String(valorId);
+    }
+
+    async function cargarCombos() {
+      const [pRes, mRes, eRes, stRes] = await Promise.all([
+        supabase.from("pacientes").select("id,rut,nombre").eq("activo", true).order("nombre"),
+        supabase.from("medico_solicitante").select("id,rut,nombre,especialidad").eq("activo", true).order("nombre"),
+        supabase.from("tipo_examen").select("id,nombre,codigo").eq("activo", true).order("nombre"),
+        supabase.from("estado_orden").select("id,nombre,orden,activo").eq("activo", true).order("orden")
+      ]);
+
+      if (pRes.error) alert("Error pacientes: " + pRes.error.message);
+      if (mRes.error) alert("Error médicos: " + mRes.error.message);
+      if (eRes.error) alert("Error exámenes: " + eRes.error.message);
+      if (stRes.error) alert("Error estados: " + stRes.error.message);
+
+      paciente.innerHTML = (pRes.data || [])
+        .map(p => `<option value="${p.id}">${esc(p.nombre)} (${esc(p.rut)})</option>`)
+        .join("") || `<option value="">(Sin pacientes activos)</option>`;
+
+      medico.innerHTML = (mRes.data || [])
+        .map(m => `<option value="${m.id}">${esc(m.nombre)} — ${esc(m.especialidad ?? "")}</option>`)
+        .join("") || `<option value="">(Sin médicos activos)</option>`;
+
+      examen.innerHTML = (eRes.data || [])
+        .map(x => `<option value="${x.id}">${esc(x.nombre)} — ${esc(x.codigo)}</option>`)
+        .join("") || `<option value="">(Sin exámenes activos)</option>`;
+
+      estado.innerHTML = (stRes.data || [])
+        .map(s => `<option value="${s.id}">${esc(s.nombre)}</option>`)
+        .join("") || `<option value="">(Sin estados)</option>`;
+    }
+
+    async function cargarOrden() {
+      if (!id) return;
+
+      title.textContent = "Editar Orden";
+
+      const { data, error } = await supabase
+        .from("orden_radiologica")
+        .select("id,paciente_id,medico_id,tipo_examen_id,estado_id,prioridad")
+        .eq("id", Number(id))
+        .single();
+
+      if (error) {
+        alert("Error cargando orden: " + error.message);
+        return;
+      }
+
+      paciente.value = String(data.paciente_id);
+      medico.value = String(data.medico_id);
+      examen.value = String(data.tipo_examen_id);
+      estado.value = String(data.estado_id);
+      prioridad.value = data.prioridad || "Normal";
+
+      estadoAnteriorId = Number(data.estado_id);
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const payload = {
+        paciente_id: Number(paciente.value),
+        medico_id: Number(medico.value),
+        tipo_examen_id: Number(examen.value),
+        estado_id: Number(estado.value),
+        prioridad: prioridad.value
+      };
+
+      if (!payload.paciente_id || !payload.medico_id || !payload.tipo_examen_id || !payload.estado_id) {
+        alert("Faltan datos obligatorios.");
+        return;
+      }
+
+      // EDITAR
+      if (id) {
+        const estadoNuevoId = payload.estado_id;
+
+        // primero actualizamos
+        const resp = await supabase
+          .from("orden_radiologica")
+          .update(payload)
+          .eq("id", Number(id));
+
+        if (resp.error) {
+          alert("Error al guardar: " + resp.error.message);
+          return;
+        }
+
+        // luego log si cambió estado
+        if (estadoAnteriorId !== null && estadoNuevoId !== estadoAnteriorId) {
+          const estadoAnteriorNombre = getEstadoNombreDesdeSelect(estadoAnteriorId);
+          const estadoNuevoNombre = getEstadoNombreDesdeSelect(estadoNuevoId);
+
+          await logEvent({
+            accion: "STATUS",
+            entidad: "orden_radiologica",
+            entidad_id: Number(id),
+            detalle: `Cambio estado: ${estadoAnteriorNombre} -> ${estadoNuevoNombre}`
+          });
+        }
+
+        alert("Orden actualizada.");
+        window.location.href = "ordenes.html";
+        return;
+      }
+
+      // CREAR
+      const resp = await supabase
+        .from("orden_radiologica")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (resp.error) {
+        alert("Error al guardar: " + resp.error.message);
+        return;
+      }
+
+      await logEvent({
+        accion: "CREATE",
+        entidad: "orden_radiologica",
+        entidad_id: resp.data?.id ?? null,
+        detalle: `Orden creada (prioridad: ${payload.prioridad})`
+      });
+
+      alert("Orden creada.");
+      window.location.href = "ordenes.html";
+    });
+
+    await cargarCombos();
+    await cargarOrden();
+  </script>
+</body>
+</html>

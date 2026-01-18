@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Paciente | RIS Lite</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; max-width: 720px; }
+    label { display:block; margin-top: 12px; font-weight: bold; }
+    input { width:100%; padding:10px; margin-top: 6px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; }
+    .row > div { flex:1; min-width: 240px; }
+    .actions { margin-top: 18px; display:flex; gap:10px; flex-wrap:wrap; }
+    .muted { color:#666; font-size: 0.9rem; }
+    .card { border:1px solid #ddd; padding:16px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+
+  <h1 id="titulo">Nuevo Paciente</h1>
+  <div class="muted">Crear / editar paciente (CRUD completo con baja lógica en listado)</div>
+
+  <div class="card" style="margin-top:16px;">
+    <form id="formPaciente">
+      <input type="hidden" id="pacienteId" />
+
+      <label>RUT</label>
+      <input id="rut" placeholder="12.345.678-9" required />
+
+      <label>Nombre completo</label>
+      <input id="nombre" placeholder="Nombre Apellido" required />
+
+      <div class="row">
+        <div>
+          <label>Fecha de nacimiento</label>
+          <input id="fecha_nacimiento" type="date" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="btnGuardar">Guardar</button>
+        <button type="button" id="btnCancelar">Cancelar</button>
+      </div>
+    </form>
+  </div>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+    import { logEvent } from "./assets/logger.js"; // ✅ IMPORT ARRIBA
+
+    const titulo = document.getElementById("titulo");
+    const form = document.getElementById("formPaciente");
+
+    const pacienteId = document.getElementById("pacienteId");
+    const rutEl = document.getElementById("rut");
+    const nombreEl = document.getElementById("nombre");
+    const fechaEl = document.getElementById("fecha_nacimiento");
+
+    const btnCancelar = document.getElementById("btnCancelar");
+
+    btnCancelar.addEventListener("click", () => {
+      window.location.href = "pacientes.html";
+    });
+
+    function getParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+
+    const id = getParam("id");
+    if (id) {
+      pacienteId.value = id;
+      titulo.textContent = "Editar Paciente";
+      cargarPaciente(id);
+    }
+
+    async function cargarPaciente(id) {
+      const { data, error } = await supabase
+        .from("pacientes")
+        .select("id,rut,nombre,fecha_nacimiento,activo")
+        .eq("id", id)
+        .single();
+
+      if (error) {
+        alert("Error cargando paciente: " + error.message);
+        return;
+      }
+
+      rutEl.value = data.rut ?? "";
+      nombreEl.value = data.nombre ?? "";
+      fechaEl.value = data.fecha_nacimiento ?? "";
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const payload = {
+        rut: rutEl.value.trim(),
+        nombre: nombreEl.value.trim(),
+        fecha_nacimiento: fechaEl.value || null,
+        activo: true
+      };
+
+      if (!payload.rut || !payload.nombre) {
+        alert("Completa RUT y Nombre.");
+        return;
+      }
+
+      // ✅ CREATE
+      if (!pacienteId.value) {
+        // Para obtener el id insertado:
+        const { data, error } = await supabase
+          .from("pacientes")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (error) {
+          alert("Error al crear: " + error.message);
+          return;
+        }
+
+        await logEvent({
+          accion: "CREATE",
+          entidad: "pacientes",
+          entidad_id: data?.id ?? null,
+          detalle: `Paciente creado: ${payload.rut} - ${payload.nombre}`
+        });
+
+        alert("Paciente creado.");
+
+      // ✅ UPDATE
+      } else {
+        const { error } = await supabase
+          .from("pacientes")
+          .update(payload)
+          .eq("id", pacienteId.value);
+
+        if (error) {
+          alert("Error al actualizar: " + error.message);
+          return;
+        }
+
+        await logEvent({
+          accion: "UPDATE",
+          entidad: "pacientes",
+          entidad_id: Number(pacienteId.value),
+          detalle: `Paciente actualizado: ${payload.rut} - ${payload.nombre}`
+        });
+
+        alert("Paciente actualizado.");
+      }
+
+      window.location.href = "pacientes.html";
+    });
+  </script>
+</body>
+</html>

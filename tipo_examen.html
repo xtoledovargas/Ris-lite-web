@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tipos de Examen</title>
+</head>
+
+<body>
+  <h1>Tipo de Examen</h1>
+
+  <div style="display:flex; gap:8px; align-items:center; margin:12px 0;">
+    <input id="q" type="text" placeholder="Buscar por nombre o código FONASA..." style="width:340px;" />
+    <button id="btnBuscar">Buscar</button>
+    <button id="btnLimpiar">Limpiar</button>
+
+    <div style="flex:1"></div>
+
+    <button id="btnNuevo">+ Nuevo</button>
+    <button id="btnVolver">Volver</button>
+  </div>
+
+  <table border="1" cellpadding="8" cellspacing="0" style="width:100%; max-width:1100px;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Nombre</th>
+        <th>Código FONASA</th>
+        <th>Descripción</th>
+        <th>Activo</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="6">Cargando...</td></tr>
+    </tbody>
+  </table>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+    import { requireAuthOrRedirect } from "./assets/auth.js";
+
+
+    const tbody = document.getElementById("tbody");
+    const q = document.getElementById("q");
+
+    document.getElementById("btnNuevo").addEventListener("click", () => {
+      window.location.href = "tipo_examen_form.html";
+    });
+
+    document.getElementById("btnVolver").addEventListener("click", () => {
+      window.location.href = "index.html"; // 👈 vuelve al home
+    });
+
+    document.getElementById("btnBuscar").addEventListener("click", () => load());
+    document.getElementById("btnLimpiar").addEventListener("click", () => { q.value = ""; load(); });
+
+    async function load() {
+      tbody.innerHTML = `<tr><td colspan="6">Cargando...</td></tr>`;
+
+      let query = supabase
+        .from("tipo_examen")
+        .select("id,nombre,codigo,descripcion,activo")
+        .order("id", { ascending: false });
+
+      const term = (q.value || "").trim();
+      if (term) {
+        query = query.or(`nombre.ilike.%${term}%,codigo.ilike.%${term}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        tbody.innerHTML = `<tr><td colspan="6">ERROR: ${escapeHtml(error.message)}</td></tr>`;
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6">Sin registros</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = data.map(row => `
+        <tr>
+          <td>${row.id}</td>
+          <td>${escapeHtml(row.nombre ?? "")}</td>
+          <td>${escapeHtml(row.codigo ?? "")}</td>
+          <td>${escapeHtml(row.descripcion ?? "")}</td>
+          <td>${row.activo ? "Sí" : "No"}</td>
+          <td>
+            <button data-edit="${row.id}">Editar</button>
+            <button data-toggle="${row.id}" data-activo="${row.activo ? "1" : "0"}">
+              ${row.activo ? "Desactivar" : "Activar"}
+            </button>
+          </td>
+        </tr>
+      `).join("");
+
+      tbody.querySelectorAll("[data-edit]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-edit");
+          window.location.href = `tipo_examen_form.html?id=${id}`;
+        });
+      });
+
+      tbody.querySelectorAll("[data-toggle]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = Number(btn.getAttribute("data-toggle"));
+          const activoActual = btn.getAttribute("data-activo") === "1";
+          const nuevoActivo = !activoActual;
+
+          if (!confirm(`¿Seguro que quieres ${nuevoActivo ? "activar" : "desactivar"} este tipo de examen?`)) return;
+
+          const { error } = await supabase
+            .from("tipo_examen")
+            .update({ activo: nuevoActivo })
+            .eq("id", id);
+
+          if (error) {
+            alert("Error: " + error.message);
+            return;
+          }
+
+          load();
+        });
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[s]));
+    }
+
+    load();
+  </script>
+</body>
+</html>

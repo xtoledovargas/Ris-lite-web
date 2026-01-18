@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Órdenes radiológicas</title>
+</head>
+<body>
+  <h1>Órdenes radiológicas</h1>
+
+  <div style="display:flex; gap:8px; align-items:center; margin:12px 0; flex-wrap:wrap;">
+    <input id="q" placeholder="Buscar por paciente, médico o código examen..." style="width:360px;" />
+    <select id="fEstado"></select>
+    <select id="fPrioridad">
+      <option value="">Prioridad (todas)</option>
+      <option value="Normal">Normal</option>
+      <option value="Urgente">Urgente</option>
+    </select>
+
+    <button id="btnBuscar">Buscar</button>
+    <button id="btnLimpiar">Limpiar</button>
+
+    <div style="flex:1"></div>
+
+    <button id="btnNueva">+ Nueva orden</button>
+    <button id="btnVolver">Volver</button>
+  </div>
+
+  <table border="1" cellpadding="8" cellspacing="0" style="width:100%; max-width:1200px;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Paciente</th>
+        <th>Médico</th>
+        <th>Examen</th>
+        <th>Código</th>
+        <th>Estado</th>
+        <th>Prioridad</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="8">Cargando...</td></tr>
+    </tbody>
+  </table>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+    import { logEvent } from "./assets/logger.js";
+    import { requireAuthOrRedirect } from "./assets/auth.js";
+
+
+    const tbody = document.getElementById("tbody");
+    const q = document.getElementById("q");
+    const fEstado = document.getElementById("fEstado");
+    const fPrioridad = document.getElementById("fPrioridad");
+
+    document.getElementById("btnNueva").addEventListener("click", () => {
+      window.location.href = "orden_form.html";
+    });
+    document.getElementById("btnVolver").addEventListener("click", () => {
+      window.location.href = "index.html";
+    });
+    document.getElementById("btnBuscar").addEventListener("click", () => load());
+    document.getElementById("btnLimpiar").addEventListener("click", () => {
+      q.value = "";
+      fEstado.value = "";
+      fPrioridad.value = "";
+      load();
+    });
+
+    function esc(str) {
+      return String(str ?? "").replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[s]));
+    }
+
+    // Cache de estados para:
+    // - poblar filtro
+    // - calcular siguiente por "orden"
+    let ESTADOS = [];
+
+    async function cargarEstadosEnFiltro() {
+      const { data, error } = await supabase
+        .from("estado_orden")
+        .select("id,nombre,orden,activo")
+        .eq("activo", true)
+        .order("orden", { ascending: true });
+
+      if (error) {
+        fEstado.innerHTML = `<option value="">Estado (error)</option>`;
+        ESTADOS = [];
+        return;
+      }
+
+      ESTADOS = data || [];
+
+      const options = [`<option value="">Estado (todos)</option>`]
+        .concat(ESTADOS.map(e => `<option value="${e.id}">${esc(e.nombre)}</option>`));
+
+      fEstado.innerHTML = options.join("");
+    }
+
+    function getEstadoById(id) {
+      return ESTADOS.find(e => Number(e.id) === Number(id)) || null;
+    }
+
+    function getSiguienteEstadoId(estadoActualId) {
+      const actual = getEstadoById(estadoActualId);
+      if (!actual) return null;
+
+      const idx = ESTADOS.findIndex(e => Number(e.id) === Number(estadoActualId));
+      if (idx === -1) return null;
+
+      // avanza por orden (ya vienen ordenados por "orden")
+      const siguiente = ESTADOS[idx + 1] ?? ESTADOS[0];
+      return Number(siguiente.id);
+    }
+
+    async function load() {
+      tbody.innerHTML = `<tr><td colspan="8">Cargando...</td></tr>`;
+
+      let query = supabase
+        .from("orden_radiologica")
+        .select(`
+          id,
+          prioridad,
+          estado_id,
+          paciente:paciente_id ( id, rut, nombre ),
+          medico:medico_id ( id, rut, nombre, especialidad ),
+          examen:tipo_examen_id ( id, nombre, codigo ),
+          estado:estado_id ( id, nombre, orden )
+        `)
+        .order("id", { ascending: false });
+
+      if (fEstado.value) query = query.eq("estado_id", Number(fEstado.value));
+      if (fPrioridad.value) query = query.eq("prioridad", fPrioridad.value);
+
+      const { data, error } = await query;
+
+      if (error) {
+        tbody.innerHTML = `<tr><td colspan="8">ERROR: ${esc(error.message)}</td></tr>`;
+        return;
+      }
+
+      let rows = data || [];
+
+      const term = (q.value || "").trim().toLowerCase();
+      if (term) {
+        rows = rows.filter(r => {
+          const p = (r.paciente?.nombre || "") + " " + (r.paciente?.rut || "");
+          const m = (r.medico?.nombre || "") + " " + (r.medico?.rut || "");
+          const e = (r.examen?.nombre || "") + " " + (r.examen?.codigo || "");
+          return (p + " " + m + " " + e).toLowerCase().includes(term);
+        });
+      }
+
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8">Sin registros</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td>${r.id}</td>
+          <td>${esc(r.paciente?.nombre)} <small>(${esc(r.paciente?.rut)})</small></td>
+          <td>${esc(r.medico?.nombre)} <small>(${esc(r.medico?.especialidad ?? "")})</small></td>
+          <td>${esc(r.examen?.nombre)}</td>
+          <td>${esc(r.examen?.codigo)}</td>
+          <td>${esc(r.estado?.nombre)}</td>
+          <td>${esc(r.prioridad)}</td>
+          <td>
+            <button data-edit="${r.id}">Editar</button>
+            <button data-next="${r.id}" data-estado="${r.estado_id}">Siguiente estado</button>
+          </td>
+        </tr>
+      `).join("");
+
+      tbody.querySelectorAll("[data-edit]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-edit");
+          window.location.href = `orden_form.html?id=${id}`;
+        });
+      });
+
+      tbody.querySelectorAll("[data-next]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const idOrden = Number(btn.getAttribute("data-next"));
+          const estadoAnteriorId = Number(btn.getAttribute("data-estado"));
+
+          const siguienteId = getSiguienteEstadoId(estadoAnteriorId);
+          if (!siguienteId) {
+            alert("No pude calcular el siguiente estado. Revisa estado_orden.");
+            return;
+          }
+
+          const estAnt = getEstadoById(estadoAnteriorId);
+          const estNuevo = getEstadoById(siguienteId);
+
+          const { error: e2 } = await supabase
+            .from("orden_radiologica")
+            .update({ estado_id: siguienteId })
+            .eq("id", idOrden);
+
+          if (e2) {
+            alert("No se pudo cambiar estado: " + e2.message);
+            return;
+          }
+
+          // LOG STATUS
+          await logEvent({
+            accion: "STATUS",
+            entidad: "orden_radiologica",
+            entidad_id: idOrden,
+            detalle: `Cambio estado: ${estAnt?.nombre ?? estadoAnteriorId} -> ${estNuevo?.nombre ?? siguienteId}`
+          });
+
+          load();
+        });
+      });
+    }
+
+    await cargarEstadosEnFiltro();
+    load();
+  </script>
+</body>
+</html>

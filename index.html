@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>RIS Lite | Inicio</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    h1 { margin-bottom: 10px; }
+    .menu {
+      margin-top: 30px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      max-width: 700px;
+    }
+    a, button {
+      padding: 18px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      text-decoration: none;
+      color: black;
+      text-align: center;
+      font-size: 16px;
+      background: white;
+      cursor: pointer;
+    }
+    a:hover, button:hover { background: #f3f3f3; }
+    .topbar {
+      display:flex;
+      justify-content: space-between;
+      align-items:center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .muted { color:#666; }
+  </style>
+</head>
+
+<body>
+  <h1>RIS Lite</h1>
+  <p class="muted">Sistema de Información Radiológica — versión académica</p>
+
+  <div class="topbar">
+    <div id="who" class="muted">Cargando sesión...</div>
+    <button id="btnLogout" type="button">Cerrar sesión</button>
+  </div>
+
+  <div class="menu" id="menu">
+  <a id="mPacientes" href="pacientes.html">👤 Pacientes</a>
+  <a id="mMedicos" href="medico.html">🩺 Médicos</a>
+  <a id="mTipoExamen" href="tipo_examen.html">🧪 Tipos de Examen</a>
+  <a id="mOrdenes" href="ordenes.html">📄 Órdenes</a>
+  <a id="mCrearOrden" href="orden_form.html">📝 Crear Orden</a>
+  <a id="mLogs" href="logs.html">📊 Logs</a>
+</div>
+
+
+  <script type="module">
+    import { requireAuthOrRedirect, signOut, getLocalSession } from "./assets/auth.js";
+    
+
+    // 1) Si no está logueado, lo manda a login.html
+    const session = await requireAuthOrRedirect(); // { email, rol }
+
+    // 2) Mostrar quién es
+    const who = document.getElementById("who");
+    const local = getLocalSession();
+    const email = session?.email || local?.email || "";
+    const rol = session?.rol || local?.rol || "";
+    who.textContent = email ? `Conectado: ${email}${rol ? " (" + rol + ")" : ""}` : "Conectado";
+
+    // 3) Filtrar menú por rol
+    const links = document.querySelectorAll("#menu a[data-roles]");
+    links.forEach(a => {
+      const allowed = (a.getAttribute("data-roles") || "")
+        .split(",")
+        .map(x => x.trim())
+        .filter(Boolean);
+
+      // si no hay rol, ocultamos todo lo que tenga restricción
+      if (!rol || (allowed.length && !allowed.includes(rol))) {
+        a.style.display = "none";
+      }
+    });
+
+    // 4) Logout
+    document.getElementById("btnLogout").addEventListener("click", () => {
+      signOut();
+    });
+    
+  </script> <script type="module" src="./assets/index.js"></script>
+
+
+</body>
+</html>

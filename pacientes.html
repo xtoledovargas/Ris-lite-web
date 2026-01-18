@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pacientes | RIS Lite</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    table { width:100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border:1px solid #ddd; padding:10px; text-align:left; }
+    th { background:#f5f5f5; }
+    .actions button { margin-right: 8px; }
+    .muted { color:#666; font-size: 0.9rem; }
+    .topbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    input { padding:8px; min-width: 240px; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div>
+      <h1>Pacientes</h1>
+      <div class="muted">Listado y mantención (CRUD)</div>
+    </div>
+
+    <div class="topbar">
+      <button id="btnNuevoPaciente" type="button">+ Nuevo Paciente</button>
+      <button id="btnVolver" type="button">Volver</button>
+    </div>
+  </header>
+
+  <section style="margin-top:16px;">
+    <input id="txtBuscar" placeholder="Buscar por RUT o nombre..." />
+    <button id="btnBuscar" type="button">Buscar</button>
+    <button id="btnLimpiar" type="button">Limpiar</button>
+  </section>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>RUT</th>
+        <th>Nombre</th>
+        <th>F. Nacimiento</th>
+        <th>Activo</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody id="tbodyPacientes">
+      <tr><td colspan="6">Cargando...</td></tr>
+    </tbody>
+  </table>
+
+  <script type="module">
+    import { supabase } from "./assets/supabaseClient.js";
+    import { requireAuthOrRedirect } from "./assets/auth.js";
+
+
+    const tbody = document.getElementById("tbodyPacientes");
+    const btnNuevoPaciente = document.getElementById("btnNuevoPaciente");
+    const btnVolver = document.getElementById("btnVolver");
+    const txtBuscar = document.getElementById("txtBuscar");
+    const btnBuscar = document.getElementById("btnBuscar");
+    const btnLimpiar = document.getElementById("btnLimpiar");
+
+    // Navegación
+    btnNuevoPaciente.addEventListener("click", () => {
+      window.location.href = "pacientes_form.html"; // ✅ tu archivo real
+    });
+
+    btnVolver.addEventListener("click", () => {
+      window.location.href = "index.html"; // ✅ volver al home
+    });
+
+    btnBuscar.addEventListener("click", () => cargarPacientes(txtBuscar.value.trim()));
+    btnLimpiar.addEventListener("click", () => { txtBuscar.value = ""; cargarPacientes(""); });
+
+    function esc(str) {
+      return String(str ?? "").replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[s]));
+    }
+
+    async function cargarPacientes(filtro) {
+      tbody.innerHTML = `<tr><td colspan="6">Cargando...</td></tr>`;
+
+      let query = supabase
+        .from("pacientes")
+        .select("id,rut,nombre,fecha_nacimiento,activo")
+        .order("id", { ascending: false })
+        .eq("activo", true); // baja lógica
+
+      if (filtro) {
+        query = query.or(`rut.ilike.%${filtro}%,nombre.ilike.%${filtro}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        tbody.innerHTML = `<tr><td colspan="6">ERROR: ${esc(error.message)}</td></tr>`;
+        console.error(error);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6">Sin registros</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = data.map(p => `
+        <tr>
+          <td>${esc(p.id)}</td>
+          <td>${esc(p.rut)}</td>
+          <td>${esc(p.nombre)}</td>
+          <td>${esc(p.fecha_nacimiento ?? "")}</td>
+          <td>${p.activo ? "Sí" : "No"}</td>
+          <td class="actions">
+            <button data-edit="${p.id}" type="button">Editar</button>
+            <button data-del="${p.id}" type="button">Eliminar</button>
+          </td>
+        </tr>
+      `).join("");
+
+      tbody.querySelectorAll("button[data-edit]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-edit");
+          window.location.href = `pacientes_form.html?id=${encodeURIComponent(id)}`;
+        });
+      });
+
+      tbody.querySelectorAll("button[data-del]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-del");
+          if (!confirm("¿Seguro que deseas eliminar (baja lógica) este paciente?")) return;
+
+          const { error: errDel } = await supabase
+            .from("pacientes")
+            .update({ activo: false })
+            .eq("id", id);
+
+          if (errDel) {
+            alert("Error al eliminar: " + errDel.message);
+            return;
+          }
+
+          alert("Paciente eliminado (baja lógica).");
+          cargarPacientes(txtBuscar.value.trim());
+        });
+      });
+    }
+
+    cargarPacientes("");
+  </script>
+</body>
+</html>
