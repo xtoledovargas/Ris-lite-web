@@ -49,6 +49,8 @@
     import { logEvent } from "./assets/logger.js";
     import { requireAuthOrRedirect } from "./assets/auth.js";
 
+    // ✅ protege pantalla
+    await requireAuthOrRedirect();
 
     const tbody = document.getElementById("tbody");
     const q = document.getElementById("q");
@@ -105,17 +107,17 @@
       return ESTADOS.find(e => Number(e.id) === Number(id)) || null;
     }
 
+    // ✅ CORREGIDO: si no hay siguiente, devuelve null (no vuelve al primero)
     function getSiguienteEstadoId(estadoActualId) {
-      const actual = getEstadoById(estadoActualId);
-      if (!actual) return null;
+  const idx = ESTADOS.findIndex(e => Number(e.id) === Number(estadoActualId));
+  if (idx === -1) return null;
 
-      const idx = ESTADOS.findIndex(e => Number(e.id) === Number(estadoActualId));
-      if (idx === -1) return null;
+  const siguiente = ESTADOS[idx + 1];
+  if (!siguiente) return null; // ya está en el último estado
 
-      // avanza por orden (ya vienen ordenados por "orden")
-      const siguiente = ESTADOS[idx + 1] ?? ESTADOS[0];
-      return Number(siguiente.id);
-    }
+  return Number(siguiente.id);
+}
+
 
     async function load() {
       tbody.innerHTML = `<tr><td colspan="8">Cargando...</td></tr>`;
@@ -160,64 +162,87 @@
         return;
       }
 
-      tbody.innerHTML = rows.map(r => `
-        <tr>
-          <td>${r.id}</td>
-          <td>${esc(r.paciente?.nombre)} <small>(${esc(r.paciente?.rut)})</small></td>
-          <td>${esc(r.medico?.nombre)} <small>(${esc(r.medico?.especialidad ?? "")})</small></td>
-          <td>${esc(r.examen?.nombre)}</td>
-          <td>${esc(r.examen?.codigo)}</td>
-          <td>${esc(r.estado?.nombre)}</td>
-          <td>${esc(r.prioridad)}</td>
-          <td>
-            <button data-edit="${r.id}">Editar</button>
-            <button data-next="${r.id}" data-estado="${r.estado_id}">Siguiente estado</button>
-          </td>
-        </tr>
-      `).join("");
+      // ✅ CORREGIDO: el botón ya no depende de data-estado viejo.
+      // Se calcula el texto del botón desde r.estado_id (que viene del SELECT),
+      // y si no hay siguiente, queda "Finalizado".
+     tbody.innerHTML = rows.map(r => {
+  const estadoActualId = Number(r.estado_id);
+  const siguienteId = getSiguienteEstadoId(estadoActualId);
 
+  const estActual = getEstadoById(estadoActualId);
+  const estNuevo = siguienteId ? getEstadoById(siguienteId) : null;
+
+  const btnNextHtml = estNuevo
+    ? `<button data-next="${r.id}" data-estado="${estadoActualId}" data-next-id="${siguienteId}">
+         Siguiente estado (${esc(estNuevo.nombre)})
+       </button>`
+    : `<button disabled title="Ya está en el último estado">Finalizado</button>`;
+
+  return `
+    <tr>
+      <td>${r.id}</td>
+      <td>${esc(r.paciente?.nombre)} <small>(${esc(r.paciente?.rut)})</small></td>
+      <td>${esc(r.medico?.nombre)} <small>(${esc(r.medico?.especialidad ?? "")})</small></td>
+      <td>${esc(r.examen?.nombre)}</td>
+      <td>${esc(r.examen?.codigo)}</td>
+      <td>${esc(r.estado?.nombre)}</td>
+      <td>${esc(r.prioridad)}</td>
+      <td>
+        <button data-edit="${r.id}">Editar</button>
+        ${btnNextHtml}
+      </td>
+    </tr>
+  `;
+}).join("");
+
+
+      // ✅ (no tocamos tu comportamiento) editar
       tbody.querySelectorAll("[data-edit]").forEach(btn => {
         btn.addEventListener("click", () => {
           const id = btn.getAttribute("data-edit");
           window.location.href = `orden_form.html?id=${id}`;
         });
       });
+      
 
-      tbody.querySelectorAll("[data-next]").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          const idOrden = Number(btn.getAttribute("data-next"));
-          const estadoAnteriorId = Number(btn.getAttribute("data-estado"));
+      // ✅ REEMPLAZO ÚNICO: dejamos UN SOLO listener para data-next (el tuyo estaba duplicado)
+     tbody.querySelectorAll("[data-next]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const idOrden = Number(btn.getAttribute("data-next"));
+    const estadoAnteriorId = Number(btn.getAttribute("data-estado"));
+    const siguienteId = Number(btn.getAttribute("data-next-id"));
 
-          const siguienteId = getSiguienteEstadoId(estadoAnteriorId);
-          if (!siguienteId) {
-            alert("No pude calcular el siguiente estado. Revisa estado_orden.");
-            return;
-          }
+    if (!siguienteId) {
+      alert("La orden ya está en el último estado.");
+      return;
+    }
 
-          const estAnt = getEstadoById(estadoAnteriorId);
-          const estNuevo = getEstadoById(siguienteId);
+    const estAnt = getEstadoById(estadoAnteriorId);
+    const estNuevo = getEstadoById(siguienteId);
 
-          const { error: e2 } = await supabase
-            .from("orden_radiologica")
-            .update({ estado_id: siguienteId })
-            .eq("id", idOrden);
+    const { error: e2 } = await supabase
+      .from("orden_radiologica")
+      .update({ estado_id: siguienteId })
+      .eq("id", idOrden);
 
-          if (e2) {
-            alert("No se pudo cambiar estado: " + e2.message);
-            return;
-          }
+    if (e2) {
+      // 🔥 acá vas a ver si es RLS
+      alert("No se pudo cambiar estado: " + e2.message);
+      return;
+    }
 
-          // LOG STATUS
-          await logEvent({
-            accion: "STATUS",
-            entidad: "orden_radiologica",
-            entidad_id: idOrden,
-            detalle: `Cambio estado: ${estAnt?.nombre ?? estadoAnteriorId} -> ${estNuevo?.nombre ?? siguienteId}`
-          });
+    await logEvent({
+      accion: "STATUS",
+      entidad: "orden_radiologica",
+      entidad_id: idOrden,
+      detalle: `Cambio estado: ${estAnt?.nombre ?? estadoAnteriorId} -> ${estNuevo?.nombre ?? siguienteId}`
+    });
 
-          load();
-        });
-      });
+    load();
+  });
+});
+
+      
     }
 
     await cargarEstadosEnFiltro();

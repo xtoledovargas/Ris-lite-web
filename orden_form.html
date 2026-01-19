@@ -7,7 +7,7 @@
 </head>
 <body>
   <h1 id="title">Nueva Orden</h1>
-  <p><a href="ordenes.html">Volver</a></p>
+  <p><a id="lnkVolver" href="ordenes.html">Volver</a></p>
 
   <form id="form" style="max-width:780px;">
     <div style="margin:10px 0;">
@@ -18,6 +18,7 @@
     <div style="margin:10px 0;">
       <label><b>Médico solicitante</b></label><br />
       <select id="medico" required style="width:100%; padding:8px;"></select>
+      <small id="medicoHint" style="display:block; margin-top:6px; color:#555;"></small>
     </div>
 
     <div style="margin:10px 0;">
@@ -38,31 +39,39 @@
       </select>
     </div>
 
+    <div style="margin:10px 0;">
+      <label><b>Observaciones clínicas (opcional)</b></label><br />
+      <!-- ✅ ID correcto -->
+      <textarea id="observaciones" rows="5" style="width:100%; padding:8px;"
+        placeholder="Ej: sospecha clínica, indicación, antecedentes relevantes..."></textarea>
+    </div>
+
     <button type="submit">Guardar</button>
     <button type="button" id="btnCancelar">Cancelar</button>
   </form>
 
   <script type="module">
     import { supabase } from "./assets/supabaseClient.js";
+    import { requireAuthOrRedirect, getLocalSession } from "./assets/auth.js";
     import { logEvent } from "./assets/logger.js";
 
     const params = new URLSearchParams(location.search);
-    const id = params.get("id");
+    const id = params.get("id"); // si querés editar después
+    const from = (params.get("from") || "").toLowerCase(); // "medico" opcional
 
     const title = document.getElementById("title");
     const form = document.getElementById("form");
 
     const paciente = document.getElementById("paciente");
     const medico = document.getElementById("medico");
+    const medicoHint = document.getElementById("medicoHint");
     const examen = document.getElementById("examen");
     const estado = document.getElementById("estado");
     const prioridad = document.getElementById("prioridad");
+    const observacionesEl = document.getElementById("observaciones");
 
-    let estadoAnteriorId = null;
-
-    document.getElementById("btnCancelar").addEventListener("click", () => {
-      window.location.href = "ordenes.html";
-    });
+    const lnkVolver = document.getElementById("lnkVolver");
+    const btnCancelar = document.getElementById("btnCancelar");
 
     function esc(str) {
       return String(str ?? "").replace(/[&<>"']/g, s => ({
@@ -70,17 +79,39 @@
       }[s]));
     }
 
-    function getEstadoNombreDesdeSelect(valorId) {
-      const opt = estado.querySelector(`option[value="${String(valorId)}"]`);
-      return opt ? opt.textContent : String(valorId);
+    function volverSegunRol() {
+      const rol = String(getLocalSession()?.rol || "").toUpperCase();
+      if (rol === "MEDICO" || from === "medico") return "mis_ordenes.html";
+      return "ordenes.html";
     }
+
+    btnCancelar.addEventListener("click", () => {
+      window.location.href = volverSegunRol();
+    });
+
+    lnkVolver.href = volverSegunRol();
 
     async function cargarCombos() {
       const [pRes, mRes, eRes, stRes] = await Promise.all([
-        supabase.from("pacientes").select("id,rut,nombre").eq("activo", true).order("nombre"),
-        supabase.from("medico_solicitante").select("id,rut,nombre,especialidad").eq("activo", true).order("nombre"),
-        supabase.from("tipo_examen").select("id,nombre,codigo").eq("activo", true).order("nombre"),
-        supabase.from("estado_orden").select("id,nombre,orden,activo").eq("activo", true).order("orden")
+        supabase.from("pacientes")
+          .select("id,rut,nombre")
+          .eq("activo", true)
+          .order("nombre"),
+
+        supabase.from("medico_solicitante")
+          .select("id,rut,nombre,especialidad")
+          .eq("activo", true)
+          .order("nombre"),
+
+        supabase.from("tipo_examen")
+          .select("id,nombre,codigo")
+          .eq("activo", true)
+          .order("nombre"),
+
+        supabase.from("estado_orden")
+          .select("id,nombre,orden")
+          .eq("activo", true)
+          .order("orden")
       ]);
 
       if (pRes.error) alert("Error pacientes: " + pRes.error.message);
@@ -97,7 +128,7 @@
         .join("") || `<option value="">(Sin médicos activos)</option>`;
 
       examen.innerHTML = (eRes.data || [])
-        .map(x => `<option value="${x.id}">${esc(x.nombre)} — ${esc(x.codigo)}</option>`)
+        .map(x => `<option value="${x.id}">${esc(x.nombre)} — ${esc(x.codigo ?? "")}</option>`)
         .join("") || `<option value="">(Sin exámenes activos)</option>`;
 
       estado.innerHTML = (stRes.data || [])
@@ -105,40 +136,35 @@
         .join("") || `<option value="">(Sin estados)</option>`;
     }
 
-    async function cargarOrden() {
-      if (!id) return;
-
-      title.textContent = "Editar Orden";
-
-      const { data, error } = await supabase
-        .from("orden_radiologica")
-        .select("id,paciente_id,medico_id,tipo_examen_id,estado_id,prioridad")
-        .eq("id", Number(id))
-        .single();
-
-      if (error) {
-        alert("Error cargando orden: " + error.message);
-        return;
+    // (opcional) si querés que el médico NO cambie estado, lo bloqueamos
+    function bloquearEstadoSiMedico(rol) {
+      if (String(rol).toUpperCase() === "MEDICO") {
+        estado.disabled = true;
+        medicoHint.textContent = "Modo médico: podrás crear órdenes, y el estado se mantiene controlado por el flujo.";
       }
-
-      paciente.value = String(data.paciente_id);
-      medico.value = String(data.medico_id);
-      examen.value = String(data.tipo_examen_id);
-      estado.value = String(data.estado_id);
-      prioridad.value = data.prioridad || "Normal";
-
-      estadoAnteriorId = Number(data.estado_id);
     }
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
+      // ✅ Sesión real: de acá sale el created_by
+      const { data: sData, error: sErr } = await supabase.auth.getSession();
+      const userId = sData?.session?.user?.id;
+
+      if (sErr || !userId) {
+        alert("Sesión inválida o expirada. Volvé a iniciar sesión.");
+        return;
+      }
+
+      // ✅ Payload final (con created_by SIEMPRE seteado)
       const payload = {
         paciente_id: Number(paciente.value),
         medico_id: Number(medico.value),
         tipo_examen_id: Number(examen.value),
         estado_id: Number(estado.value),
-        prioridad: prioridad.value
+        prioridad: prioridad.value,
+        observaciones: (observacionesEl.value || "").trim() || null,
+        created_by: userId
       };
 
       if (!payload.paciente_id || !payload.medico_id || !payload.tipo_examen_id || !payload.estado_id) {
@@ -146,40 +172,6 @@
         return;
       }
 
-      // EDITAR
-      if (id) {
-        const estadoNuevoId = payload.estado_id;
-
-        // primero actualizamos
-        const resp = await supabase
-          .from("orden_radiologica")
-          .update(payload)
-          .eq("id", Number(id));
-
-        if (resp.error) {
-          alert("Error al guardar: " + resp.error.message);
-          return;
-        }
-
-        // luego log si cambió estado
-        if (estadoAnteriorId !== null && estadoNuevoId !== estadoAnteriorId) {
-          const estadoAnteriorNombre = getEstadoNombreDesdeSelect(estadoAnteriorId);
-          const estadoNuevoNombre = getEstadoNombreDesdeSelect(estadoNuevoId);
-
-          await logEvent({
-            accion: "STATUS",
-            entidad: "orden_radiologica",
-            entidad_id: Number(id),
-            detalle: `Cambio estado: ${estadoAnteriorNombre} -> ${estadoNuevoNombre}`
-          });
-        }
-
-        alert("Orden actualizada.");
-        window.location.href = "ordenes.html";
-        return;
-      }
-
-      // CREAR
       const resp = await supabase
         .from("orden_radiologica")
         .insert(payload)
@@ -191,6 +183,7 @@
         return;
       }
 
+      // Log (si lo usás)
       await logEvent({
         accion: "CREATE",
         entidad: "orden_radiologica",
@@ -199,11 +192,13 @@
       });
 
       alert("Orden creada.");
-      window.location.href = "ordenes.html";
+      window.location.href = volverSegunRol();
     });
 
+    // INIT
+    const session = await requireAuthOrRedirect(); // guarda localSession (email/rol)
     await cargarCombos();
-    await cargarOrden();
+    bloquearEstadoSiMedico(session?.rol);
   </script>
 </body>
 </html>

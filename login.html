@@ -16,14 +16,15 @@
     <div style="margin:10px 0;">
       <input id="password" type="password" placeholder="Contraseña" style="width:100%; padding:10px;" />
     </div>
-    <div style="margin:10px 0;">
-  <select id="rol" style="width:100%; padding:10px;">
-    <option value="TM">Tecnólogo Médico</option>
-    <option value="Medico">Médico</option>
-    <option value="Admin">Administrador</option>
-  </select>
-</div>
 
+    <!-- SOLO PARA REGISTRO -->
+    <div style="margin:10px 0;">
+      <select id="rol" style="width:100%; padding:10px;">
+        <option value="TM">Tecnólogo Médico</option>
+        <option value="MEDICO">Médico</option>
+        <option value="ADMIN">Administrador</option>
+      </select>
+    </div>
 
     <button id="btnLogin" style="padding:10px 16px; width:100%;">Ingresar</button>
 
@@ -31,7 +32,7 @@
       <button id="btnRegister" style="padding:10px 16px; width:100%;">Crear cuenta</button>
     </div>
 
-    <p id="msg" style="color:#b00; margin-top:10px;"></p>
+    <p id="msg" style="margin-top:10px;"></p>
   </div>
 
   <script type="module">
@@ -40,20 +41,19 @@
 
     const $email = document.getElementById("email");
     const $pass = document.getElementById("password");
- 
-    
+    const $rolSelect = document.getElementById("rol");
     const $btnLogin = document.getElementById("btnLogin");
     const $btnRegister = document.getElementById("btnRegister");
     const $msg = document.getElementById("msg");
-
-    // Ajustá el rol por defecto para nuevos registros
-    const DEFAULT_ROL = "TM"; // "TM" / "Medico" / "Admin"
 
     function showMsg(text, ok = false) {
       $msg.style.color = ok ? "green" : "#b00";
       $msg.textContent = text || "";
     }
 
+    /* =======================
+       LOGIN
+       ======================= */
     $btnLogin.addEventListener("click", async () => {
       showMsg("");
 
@@ -65,78 +65,76 @@
         return;
       }
 
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         showMsg("Login falló: " + error.message);
         return;
       }
 
+      // ⚠️ EL ROL SE OBTIENE DESDE LA BD, NO DEL SELECT
       const rol = await getUserRoleByEmail(email);
 
       if (!rol) {
-        // Si se logueó en Auth pero no está en tabla usuarios, lo sacamos para que no quede “medio adentro”
         await signOut();
-        showMsg("Tu usuario no tiene rol activo en la tabla usuarios.");
+        showMsg("Tu usuario no tiene rol activo asignado.");
         return;
       }
 
       setLocalSession({ email, rol });
 
-      // Redirección por rol
-      if (rol === "TM") window.location.href = "ordenes.html";
-      else if (rol === "Medico") window.location.href = "orden_form.html";
-      else window.location.href = "index.html";
+      // 🔀 Redirección por rol REAL
+      if (rol === "TM") {
+        window.location.href = "ordenes.html";
+      } else if (rol === "MEDICO") {
+        window.location.href = "mis_ordenes.html";
+      } else if (rol === "ADMIN") {
+        window.location.href = "index.html";
+      } else {
+        window.location.href = "index.html";
+      }
     });
 
+    /* =======================
+       REGISTRO
+       ======================= */
     $btnRegister.addEventListener("click", async () => {
       showMsg("");
 
       const email = ($email.value || "").trim();
       const password = ($pass.value || "").trim();
+      const rol = $rolSelect.value; // 👈 acá sí usamos el select
 
       if (!email || !password) {
         showMsg("Para crear cuenta, completa email y contraseña.");
         return;
       }
 
-      // 1) Crear usuario en Supabase Auth
       const { data, error } = await supabase.auth.signUp({ email, password });
-
       if (error) {
         showMsg("Registro falló: " + error.message);
         return;
       }
 
       const user = data?.user;
-
-      // Si está activado "Confirm email", puede venir sin session, pero user suele venir igual.
       if (!user?.id) {
-        showMsg("Cuenta creada. Revisa tu correo para confirmar y luego inicia sesión.", true);
+        showMsg("Cuenta creada. Revisa tu correo para confirmar.", true);
         return;
       }
 
-      // 2) Guardar rol en tabla usuarios
       const { error: dbError } = await supabase.from("usuarios").insert({
         id: user.id,
         email: user.email,
-        rol: DEFAULT_ROL,
+        rol: rol,
         activo: true
       });
 
       if (dbError) {
-        showMsg("Cuenta creada en Auth, pero falló guardar en tabla usuarios: " + dbError.message);
+        showMsg("Cuenta creada, pero error al guardar rol: " + dbError.message);
         return;
       }
 
-      // Si confirm email está prendido, igual avisamos
-      if (!data?.session) {
-        showMsg("Cuenta creada. Revisa tu correo para confirmar y luego inicia sesión.", true);
-      } else {
-        showMsg("Cuenta creada. Ya puedes ingresar.", true);
-      }
+      showMsg("Cuenta creada correctamente. Ya puedes iniciar sesión.", true);
     });
-  </script> <script type="module" src="./assets/register.js"></script>
-
+  </script>
 </body>
 </html>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mis Órdenes | RIS Lite</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .muted { color:#666; font-size: 0.95rem; }
+    table { width:100%; max-width:1200px; border-collapse: collapse; margin-top: 14px; }
+    th, td { border:1px solid #ddd; padding:10px; text-align:left; }
+    th { background:#f5f5f5; }
+    button { padding:8px 12px; }
+  </style>
+</head>
+
+<body>
+  <div class="top">
+    <div>
+      <h1>Mis Órdenes</h1>
+      <div class="muted">Órdenes creadas por el usuario Médico autenticado</div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <span id="lblSession" class="muted"></span>
+      <button id="btnNueva">+ Nueva orden</button>
+      <button id="btnVolver">Volver</button>
+      <button id="btnLogout">Cerrar sesión</button>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Paciente</th>
+        <th>Examen</th>
+        <th>Código</th>
+        <th>Estado</th>
+        <th>Prioridad</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="7">Cargando...</td></tr>
+    </tbody>
+  </table>
+
+  <script type="module" src="./assets/mis_ordenes.js"></script>
+</body>
+</html>

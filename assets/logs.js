@@ -1,5 +1,5 @@
-import { supabase } from "./assets/supabaseClient.js";
-import { requireAuthOrRedirect } from "./assets/auth.js";
+import { supabase } from "./supabaseClient.js";
+import { requireAuthOrRedirect, getLocalSession } from "./auth.js";
 
 const $rows = document.getElementById("rows");
 const $q = document.getElementById("q");
@@ -16,14 +16,20 @@ function escapeHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
+function irInicioSegunRol() {
+  const rol = String(getLocalSession()?.rol || "").toUpperCase();
+  if (rol === "TM") return "ordenes.html";
+  return "index.html"; // admin
+}
+
 async function cargarRolesMapa() {
   const { data, error } = await supabase
     .from("usuarios")
     .select("email,rol,activo");
 
-  if (error) return new Map();
-
   const map = new Map();
+  if (error) return map;
+
   (data || []).forEach(u => {
     if (u?.email && u?.activo !== false) map.set(u.email, u.rol || "");
   });
@@ -80,8 +86,16 @@ async function cargarLogs() {
 
 $btnBuscar?.addEventListener("click", cargarLogs);
 $btnLimpiar?.addEventListener("click", () => { $q.value = ""; cargarLogs(); });
-$btnVolver?.addEventListener("click", () => window.location.href = "index.html");
+$btnVolver?.addEventListener("click", () => window.location.href = irInicioSegunRol());
 
-// ✅ protege pantalla
-await requireAuthOrRedirect();
-cargarLogs();
+// ✅ 1) protege pantalla
+const session = await requireAuthOrRedirect();
+const rol = String(session?.rol || "").toUpperCase();
+
+// ✅ 2) restringir acceso: solo ADMIN o TM
+if (rol !== "ADMIN" && rol !== "TM") {
+  alert("No tienes permisos para ver los logs.");
+  window.location.href = "index.html";
+} else {
+  cargarLogs();
+}
